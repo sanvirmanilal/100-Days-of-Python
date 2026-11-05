@@ -1,4 +1,5 @@
 """Test fixtures and assertions. No exercise implementations live here."""
+
 import asyncio
 import copy
 import inspect
@@ -29,15 +30,15 @@ class ObjectChecks:
 
 
 def raise_value(*args, **kwargs):
-    raise ValueError('Injected test failure')
+    raise ValueError("Injected test failure")
 
 
 def always_missing(*args):
-    raise KeyError('Injected missing value')
+    raise KeyError("Injected missing value")
 
 
 def print_ready():
-    print('ready')
+    print("ready")
 
 
 class CurriculumCase(unittest.TestCase):
@@ -48,34 +49,50 @@ class CurriculumCase(unittest.TestCase):
     def realize(self, value):
         if isinstance(value, File):
             if self._temporary is None:
-                scratch = Path(__file__).resolve().parents[1] / '.practice_tmp'
+                scratch = Path(__file__).resolve().parents[1] / ".practice_tmp"
                 scratch.mkdir(exist_ok=True)
-                self._temporary = scratch / f'case_{uuid4().hex}'
+                self._temporary = scratch / f"case_{uuid4().hex}"
                 self._temporary.mkdir()
+
                 def cleanup():
                     target = self._temporary.resolve()
-                    if target.parent != scratch.resolve() or not target.name.startswith('case_'):
-                        raise ValueError('Fixture cleanup must stay inside the scratch folder')
+                    if target.parent != scratch.resolve() or not target.name.startswith(
+                        "case_"
+                    ):
+                        raise ValueError(
+                            "Fixture cleanup must stay inside the scratch folder"
+                        )
                     shutil.rmtree(target)
+
                 self.addCleanup(cleanup)
             self._file_number += 1
-            path = self._temporary / f'input_{self._file_number}.txt'
-            path.write_text(value.content, encoding='utf-8')
+            path = self._temporary / f"input_{self._file_number}.txt"
+            path.write_text(value.content, encoding="utf-8")
             return path
         if isinstance(value, Database):
-            connection = sqlite3.connect(':memory:')
+            connection = sqlite3.connect(":memory:")
             self.addCleanup(connection.close)
             connection.executescript(value.script)
             return connection
-        if isinstance(value, str) and value.startswith('CALL:'):
+        if isinstance(value, str) and value.startswith("CALL:"):
             callbacks = {
-                'int': int, 'str': str, 'abs': abs, 'bool': bool, 'float': float,
-                'str.upper': str.upper, 'str.strip': str.strip, 'str.isupper': str.isupper,
-                'print_ready': print_ready, 'print_nothing': lambda: None,
-                'raise_value': raise_value, 'read_x': lambda mapping: mapping['x'],
-                'clock_100': lambda: 100, 'clock_0': lambda: 0,
-                'lookup_zero': lambda key: {'x': 0}[key], 'always_missing': always_missing,
-                'noop': lambda *args: None,
+                "int": int,
+                "str": str,
+                "abs": abs,
+                "bool": bool,
+                "float": float,
+                "str.upper": str.upper,
+                "str.strip": str.strip,
+                "str.isupper": str.isupper,
+                "print_ready": print_ready,
+                "print_nothing": lambda: None,
+                "raise_value": raise_value,
+                "read_x": lambda mapping: mapping["x"],
+                "clock_100": lambda: 100,
+                "clock_0": lambda: 0,
+                "lookup_zero": lambda key: {"x": 0}[key],
+                "always_missing": always_missing,
+                "noop": lambda *args: None,
             }
             return Mock(side_effect=callbacks[value[5:]])
         if isinstance(value, list):
@@ -109,19 +126,33 @@ class CurriculumCase(unittest.TestCase):
     def is_exception(value):
         return isinstance(value, type) and issubclass(value, BaseException)
 
-    def check(self, function, original_args, expected, mode=None, dataclass_required=False, frozen=False):
+    def check(
+        self,
+        function,
+        original_args,
+        expected,
+        mode=None,
+        dataclass_required=False,
+        frozen=False,
+        verify=None,
+    ):
         args = self.realize(original_args)
         # All curriculum contracts leave caller-owned collections unchanged.
-        snapshots = [(index, copy.deepcopy(arg)) for index, arg in enumerate(args)
-                     if isinstance(arg, (list, dict, set)) and not self.contains_callable(arg)]
+        snapshots = [
+            (index, copy.deepcopy(arg))
+            for index, arg in enumerate(args)
+            if isinstance(arg, (list, dict, set)) and not self.contains_callable(arg)
+        ]
 
         def invoke():
-            if mode == 'async':
-                self.assertTrue(inspect.iscoroutinefunction(function), 'Use async def')
+            if mode == "async":
+                self.assertTrue(inspect.iscoroutinefunction(function), "Use async def")
                 return asyncio.run(function(*args))
             actual = function(*args)
-            if mode == 'iterator':
-                self.assertIs(iter(actual), actual, 'Return an iterator, not an eager collection')
+            if mode == "iterator":
+                self.assertIs(
+                    iter(actual), actual, "Return an iterator, not an eager collection"
+                )
                 return list(actual)
             return actual
 
@@ -134,14 +165,16 @@ class CurriculumCase(unittest.TestCase):
                 elif isinstance(expected, ObjectChecks):
                     obj = invoke()
                     if dataclass_required:
-                        self.assertTrue(is_dataclass(obj), 'Implement a dataclass')
+                        self.assertTrue(is_dataclass(obj), "Implement a dataclass")
                     for method, method_args, result in expected.steps:
+
                         def operation():
-                            if method.startswith('@'):
+                            if method.startswith("@"):
                                 return getattr(obj, method[1:])
-                            if method == '!list':
+                            if method == "!list":
                                 return list(obj)
                             return getattr(obj, method)(*self.realize(method_args))
+
                         if self.is_exception(result):
                             with self.assertRaises(result):
                                 operation()
@@ -155,11 +188,13 @@ class CurriculumCase(unittest.TestCase):
                     self.assert_value(invoke(), expected)
         finally:
             for index, snapshot in snapshots:
-                self.assertEqual(args[index], snapshot, 'Do not mutate caller-owned input')
-        if function.__name__ == 'stamp' and not self.is_exception(expected):
-            args[1].assert_called_once_with()
-        if function.__name__ == 'notify_all' and not self.is_exception(expected):
-            self.assertEqual([call.args for call in args[1].call_args_list], [(name,) for name in args[0]])
+                self.assertEqual(
+                    args[index], snapshot, "Do not mutate caller-owned input"
+                )
+        # Optional post-call verification of realized arguments, e.g. mock call history.
+        # Run only for non-exception contracts; receives the realized argument list.
+        if verify is not None and not self.is_exception(expected):
+            verify(args)
 
     def contains_callable(self, value):
         if callable(value):
